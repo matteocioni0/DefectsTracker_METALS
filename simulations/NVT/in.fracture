@@ -1,0 +1,85 @@
+# INITIALIZATION
+units metal
+dimension 3
+boundary p p p
+atom_style full
+atom_modify map array
+
+variable nst_equilibration equal 60000
+variable temp equal 300
+variable t_damp equal 1
+variable out_thermo equal 2000 
+variable out_traj   equal 2000 
+variable nst_run equal 10000000   #1ns = 1000000
+
+######################################
+# SIMULATION CELL VARIABLES (in Angstroms)
+
+read_data ../minimization/minimized.data
+
+mass 1 63.546
+pair_style eam/alloy
+pair_coeff * * /leonardo_work/IscrB_DYNASURF/mattia/Fracture/POLY/Cu_mishin1.eam.alloy Cu
+
+
+##########################################
+# Equilibration
+
+
+thermo ${out_thermo}
+thermo_style custom step temp pe press vol lx ly lz  
+ 
+dump mydump all custom ${out_traj} equilibration.lammpsdump id type x y z ix iy iz
+dump_modify mydump sort id
+velocity all create ${temp} ${NREPLICA}
+
+fix 2 all npt temp ${temp} ${temp} ${t_damp} iso 1.0 1.0 1
+run ${nst_equilibration}
+unfix 2
+undump mydump
+
+write_data equilibrated.data
+
+reset_timestep 0 time 0
+
+###########################################
+
+fix 1 all nvt/sllod temp ${temp} ${temp} ${t_damp} 
+variable strainrate equal 0.00003  #0.00001 e' 1% strain al nano secondo
+fix 3 all deform 1 x erate ${strainrate} units box remap v
+
+
+variable lx1 equal "lx"
+run 0
+variable lx0 equal ${lx1}
+run 0
+variable strain equal "(v_lx1-v_lx0)/v_lx0"
+run 0
+
+# Setup file output (time in ps, pressure in GPa)
+variable p1 equal "v_strain"
+variable p2 equal "-pxx/10000"
+variable p3 equal "-pyy/10000"
+variable p4 equal "-pzz/10000"
+variable p5 equal "-pxy/10000"
+variable p6 equal "-pxz/10000"
+variable p7 equal "-pyz/10000"
+variable p8 equal "pe"
+variable p9 equal "etotal"
+variable p10 equal "temp"
+
+
+# Output stress and strain information to datafile for Matlab post-processing
+#fix gb_fracture all print 10000 "${p1} ${p2} ${p3} ${p4} ${p5} ${p6} ${p7} ${p8} ${p9} ${p10}" file data.steel_fracture.txt screen no
+fix gb_fracture2 all print ${out_traj} "${p1} ${p2} ${p3} ${p4} ${p5} ${p6} ${p7} ${p8} ${p9} ${p10}" file data.SYNC.txt screen no
+
+run 0
+
+#output trajectory
+dump dump2 all custom ${out_traj} scnemd.lammpsdump id type x y z ix iy iz
+dump_modify dump2 sort id
+fix 4  all momentum 100 linear 1 1 1 angular
+run ${nst_run}
+write_data end.data
+
+
